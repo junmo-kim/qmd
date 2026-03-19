@@ -1074,4 +1074,14 @@ describe.skipIf(!!process.env.CI)("MCP HTTP Transport", () => {
     expect(json.result).toBeDefined();
     expect(json.result.content.length).toBeGreaterThan(0);
   });
+
+  test("binds to address specified by host option", async () => {
+    const customHandle = await startMcpHttpServer(0, { quiet: true, host: "127.0.0.1" });
+    try {
+      const res = await fetch(`http://127.0.0.1:${customHandle.port}/health`);
+      expect(res.status).toBe(200);
+    } finally {
+      await customHandle.stop();
+    }
+  });
 });
