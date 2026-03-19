@@ -690,6 +690,75 @@ function isCpuModeRequested(): boolean {
   return resolveLlamaGpuMode() === false;
 }
 
+/**
+ * Client for OpenAI-compatible remote embedding APIs.
+ * Used when QMD_EMBED_API_URL is set to bypass local node-llama-cpp.
+ * Compatible with llama-server, Ollama, LiteLLM, and OpenAI.
+ */
+class RemoteEmbedClient {
+  private readonly baseUrl: string;
+  private readonly apiKey: string | undefined;
+  private readonly model: string | undefined;
+
+  constructor() {
+    this.baseUrl = (process.env.QMD_EMBED_API_URL ?? "").replace(/\/+$/, "");
+    this.apiKey = process.env.QMD_EMBED_API_KEY;
+    this.model = process.env.QMD_EMBED_API_MODEL;
+  }
+
+  async embed(text: string): Promise<EmbeddingResult | null> {
+    const results = await this.embedBatch([text]);
+    return results[0] ?? null;
+  }
+
+  async embedBatch(texts: string[]): Promise<(EmbeddingResult | null)[]> {
+    if (texts.length === 0) return [];
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+    const body: Record<string, unknown> = { input: texts };
+    if (this.model) body["model"] = this.model;
+    try {
+      const res = await fetch(`${this.baseUrl}/embeddings`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => String(res.status));
+        console.error(`QMD remote embed API error ${res.status}: ${msg}`);
+        return await this.embedBatchIndividually(texts);
+      }
+      const json = await res.json() as { data: { embedding: number[]; index: number }[]; model: string };
+      const sorted = [...json.data].sort((a, b) => a.index - b.index);
+      return sorted.map(d => ({ embedding: d.embedding, model: json.model }));
+    } catch (err) {
+      console.error("QMD remote embed fetch error:", err);
+      return texts.map(() => null);
+    }
+  }
+
+  private async embedBatchIndividually(texts: string[]): Promise<(EmbeddingResult | null)[]> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+    return Promise.all(texts.map(async (text) => {
+      const body: Record<string, unknown> = { input: [text] };
+      if (this.model) body["model"] = this.model;
+      try {
+        const res = await fetch(`${this.baseUrl}/embeddings`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) return null;
+        const json = await res.json() as { data: { embedding: number[]; index: number }[]; model: string };
+        return json.data[0] ? { embedding: json.data[0].embedding, model: json.model } : null;
+      } catch {
+        return null;
+      }
+    }));
+  }
+}
+
 export class LlamaCpp implements LLM {
   private readonly _ciMode = !!process.env.CI;
   private llama: Llama | null = null;
@@ -1212,6 +1281,9 @@ export class LlamaCpp implements LLM {
    * Returns tokenizer tokens (opaque type from node-llama-cpp)
    */
   async tokenize(text: string): Promise<readonly LlamaToken[]> {
+    if (process.env.QMD_EMBED_API_URL) {
+      return new Array(text.length) as LlamaToken[];
+    }
     await this.ensureEmbedContext();  // Ensure model is loaded
     if (!this.embedModel) {
       throw new Error("Embed model not loaded");
@@ -1275,6 +1347,9 @@ export class LlamaCpp implements LLM {
   }
 
   async embed(text: string, options: EmbedOptions = {}): Promise<EmbeddingResult | null> {
+    if (process.env.QMD_EMBED_API_URL) {
+      return new RemoteEmbedClient().embed(text);
+    }
     // Ping activity at start to keep models alive during this operation
     this.touchActivity();
 
@@ -1304,6 +1379,9 @@ export class LlamaCpp implements LLM {
    * Uses Promise.all for parallel embedding - node-llama-cpp handles batching internally
    */
   async embedBatch(texts: string[], options: EmbedOptions = {}): Promise<(EmbeddingResult | null)[]> {
+    if (process.env.QMD_EMBED_API_URL) {
+      return new RemoteEmbedClient().embedBatch(texts);
+    }
     if (this._ciMode) throw new Error("LLM operations are disabled in CI (set CI=true)");
     // Ping activity at start to keep models alive during this operation
     this.touchActivity();
@@ -1432,6 +1510,12 @@ export class LlamaCpp implements LLM {
   // ==========================================================================
 
   async expandQuery(query: string, options: { context?: string, includeLexical?: boolean, intent?: string } = {}): Promise<Queryable[]> {
+    if (process.env.QMD_EMBED_API_URL) {
+      const includeLexical = options.includeLexical ?? true;
+      const fallback: Queryable[] = [{ type: 'vec', text: query }];
+      if (includeLexical) fallback.push({ type: 'lex', text: query });
+      return fallback;
+    }
     if (this._ciMode) throw new Error("LLM operations are disabled in CI (set CI=true)");
     // Ping activity at start to keep models alive during this operation
     this.touchActivity();
@@ -1532,6 +1616,10 @@ export class LlamaCpp implements LLM {
     documents: RerankDocument[],
     options: RerankOptions = {}
   ): Promise<RerankResult> {
+    if (process.env.QMD_EMBED_API_URL) {
+      const results = documents.map((doc, index) => ({ file: doc.file, score: 0.5, index }));
+      return { results, model: this.rerankModelUri };
+    }
     if (this._ciMode) throw new Error("LLM operations are disabled in CI (set CI=true)");
     // Ping activity at start to keep models alive during this operation
     this.touchActivity();
