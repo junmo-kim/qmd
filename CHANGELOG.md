@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- `QMD_EMBED_API_URL` — route all embedding calls to an OpenAI-compatible
+  remote API (e.g. Ollama, llama-server, LiteLLM) instead of loading a local
+  GGUF model. Useful in containerised or GPU-less environments. When set:
+  - `embed()` / `embedBatch()` — POST to `<url>/embeddings`; batch failures
+    fall back to per-item requests automatically
+  - `tokenize()` — skips local model; uses 1 char ≈ 1 token approximation
+  - `expandQuery()` — returns `[vec, lex]` pair using the original query
+    (no local LLM required)
+  - `rerank()` — passthrough with uniform score 0.5 (no local reranker required)
+  - Optional: `QMD_EMBED_API_KEY` (Bearer token), `QMD_EMBED_API_MODEL`
+    (override model name in request body)
+  - No behaviour change when `QMD_EMBED_API_URL` is unset. Fixes #403,
+    related to #428
+
 ### Documentation
 
 - README: documented collection filtering (`-c` semantics), the `collection
