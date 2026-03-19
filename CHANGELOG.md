@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- `qmd mcp --http --host <addr>` — bind the MCP HTTP server to a custom
+  address. Defaults to `127.0.0.1` (no behaviour change for existing
+  deployments). Use `--host 0.0.0.0` to accept connections from Docker
+  containers or remote hosts.
+
 ### Fixes
 
 - Sync stale `bun.lock` (`better-sqlite3` 11.x → 12.x). CI and release
