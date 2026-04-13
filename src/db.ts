@@ -133,6 +133,7 @@ export interface Database {
   // (better-sqlite3 and bun:sqlite each expose .immediate/.deferred/.exclusive).
   transaction<T extends (...args: SQLiteValue[]) => unknown>(fn: T): T & { immediate: T };
   close(): void;
+  transaction<T>(fn: (...args: any[]) => T): (...args: any[]) => T;
 }
 
 export interface Statement {

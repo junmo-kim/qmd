@@ -1399,7 +1399,6 @@ describe.skipIf(!!process.env.CI)("LLM Session Management", () => {
   });
 });
 
-<<<<<<< HEAD
 describe("LlamaCpp generate sequence dispose (node-llama-cpp 3.20)", () => {
   test("awaits async sequence.dispose before context.dispose", async () => {
     const order: string[] = [];
