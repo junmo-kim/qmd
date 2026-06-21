@@ -821,12 +821,25 @@ export async function startMcpHttpServer(
           return;
         }
 
-        const url = `http://localhost:${port}${pathname}`;
-        const rawBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD" ? await collectBody(nodeReq) : undefined;
-        const request = new Request(url, { method: nodeReq.method || "GET", headers, ...(rawBody ? { body: rawBody } : {}) });
+        const mcpUrl = `http://localhost:${port}${pathname}`;
+        const request = new Request(mcpUrl, { method: nodeReq.method || "GET", headers });
         const response = await transport.handleRequest(request);
         nodeRes.writeHead(response.status, Object.fromEntries(response.headers));
-        nodeRes.end(Buffer.from(await response.arrayBuffer()));
+        nodeRes.flushHeaders();
+        if (response.body) {
+          const reader = response.body.getReader();
+          (async () => {
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) { nodeRes.end(); break; }
+                nodeRes.write(Buffer.from(value));
+              }
+            } catch { nodeRes.end(); }
+          })();
+        } else {
+          nodeRes.end();
+        }
         return;
       }
 
